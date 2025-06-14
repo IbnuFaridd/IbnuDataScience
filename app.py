@@ -1,10 +1,11 @@
 import streamlit as st
 import joblib
 import numpy as np
+import pandas as pd
 
 # Page configuration
 st.set_page_config(
-    page_title="Weight Status Prediction",
+    page_title="Prediksi Status Berat Badan",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -26,52 +27,47 @@ st.markdown("""
         .stButton>button:hover {
             background-color: #45a049;
         }
-        .stSelectbox>div>div>select {
-            padding: 0.5rem;
+        .debug-info {
+            background-color: #f0f0f0;
             border-radius: 5px;
-        }
-        .stNumberInput>div>div>input {
-            padding: 0.5rem;
-            border-radius: 5px;
-        }
-        .css-1aumxhk {
-            background-color: #ffffff;
-            border-radius: 10px;
-            padding: 2rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .prediction-card {
-            background-color: #4CAF50;
-            color: white;
-            border-radius: 10px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: monospace;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# Load models and scaler
+# Load models and scaler with error handling
 @st.cache_resource
 def load_models():
     try:
-        rf_model = joblib.load('best_random_forest_model.pkl')
-        dt_model = joblib.load('best_decision_tree_model.pkl')
-        knn_model = joblib.load('best_knn_model.pkl')
-        scaler = joblib.load('scaler.pkl')
-        return rf_model, dt_model, knn_model, scaler
-    except FileNotFoundError as e:
-        st.error(f"Error loading files: {str(e)}")
+        models = {
+            'rf': joblib.load('best_random_forest_model.pkl'),
+            'dt': joblib.load('best_decision_tree_model.pkl'),
+            'knn': joblib.load('best_knn_model.pkl')
+        }
+        scaler = joblib.load('scaler_3features.pkl')
+        
+        # Validate models and scaler
+        for name, model in models.items():
+            if not hasattr(model, 'predict'):
+                raise ValueError(f"Model {name} is invalid")
+                
+        return models['rf'], models['dt'], models['knn'], scaler
+        
+    except Exception as e:
+        st.error(f"Failed to load model: {str(e)}")
         st.stop()
 
 rf_model, dt_model, knn_model, scaler = load_models()
 
-# Get expected number of features from the model
-n_features_rf = rf_model.n_features_in_
-n_features_dt = dt_model.n_features_in_
-n_features_knn = knn_model.n_features_in_
+# Debug: Display model info
+st.sidebar.subheader("Model Info")
+st.sidebar.write(f"Random Forest features: {rf_model.n_features_in_}")
+st.sidebar.write(f"Decision Tree features: {dt_model.n_features_in_}")
+st.sidebar.write(f"KNN features: {knn_model.n_features_in_}")
 
-class_labels = {
+class_mapping = {
     0: 'Normal Weight',
     1: 'Overweight Level I',
     2: 'Overweight Level II',
@@ -81,101 +77,87 @@ class_labels = {
     6: 'Underweight'
 }
 
-class_colors = {
-    'Normal Weight': '#4CAF50',
-    'Overweight Level I': '#FFC107',
-    'Overweight Level II': '#FF9800',
-    'Obesitas Tipe I': '#F44336',
-    'Obesitas Tipe II': '#E91E63',
-    'Obesitas Tipe III': '#9C27B0',
-    'Underweight': '#2196F3'
-}
+def predict_with_debug(model, input_data, scaler=None):
+    try:
+        # Convert to numpy array
+        input_array = np.array(input_data).reshape(1, -1)
+        
+        # Debug: Display input before scaling
+        st.write("### Debug Info")
+        with st.expander("View Prediction Process Details"):
+            
+            
+            if scaler:
+                # Debug scaling
+                scaled_data = scaler.transform(input_array)
+                
+                
+                # Predict
+                prediction = model.predict(scaled_data)
+                
+                # If model has predict_proba
+                if hasattr(model, 'predict_proba'):
+                    proba = model.predict_proba(scaled_data)
+                    st.write("**Probabilities:**", proba)
+            else:
+                prediction = model.predict(input_array)
+                
+        return prediction[0]
+        
+    except Exception as e:
+        st.error(f"Prediction error: {str(e)}")
+        return None
 
-def predict(model, features, scaler=None):
-    features = np.array(features).reshape(1, -1)
-    if scaler:
-        features = scaler.transform(features)
-    return model.predict(features)
-
-# App layout
+# Main UI
 st.title("⚖️ Prediksi Status Berat Badan")
-st.markdown("Aplikasi ini memprediksi kategori berat badan Anda berdasarkan usia, tinggi badan, dan berat badan.")
 
-# Sidebar
-with st.sidebar:
-    st.header("Tentang Aplikasi")
-    st.markdown("""
-    Aplikasi ini menggunakan model machine learning untuk memprediksi status berat badan Anda berdasarkan:
-    - Usia
-    - Tinggi badan
-    - Berat badan
-    
-    Pilih model yang ingin digunakan dan masukkan data Anda untuk mendapatkan prediksi.
-    """)
-
-# Main content
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Data Diri Anda")
-    with st.container():
-        age = st.number_input('Usia (tahun)', min_value=0, max_value=100, value=25)
-        height = st.number_input('Tinggi Badan (cm)', min_value=50, max_value=250, value=170)
-        weight = st.number_input('Berat Badan (kg)', min_value=30, max_value=200, value=70)
-
-    model_choice = st.selectbox('Pilih Model Prediksi', 
-                              ['Random Forest', 'Decision Tree', 'K-Nearest Neighbors'],
-                              help="Pilih algoritma machine learning untuk prediksi")
+    st.subheader("Input Data")
+    age = st.number_input("Usia (tahun)", min_value=1, max_value=120, value=30)
+    height = st.number_input("Tinggi Badan (cm)", min_value=50, max_value=250, value=170)
+    weight = st.number_input("Berat Badan (kg)", min_value=20, max_value=300, value=70)
+    
+    model_choice = st.selectbox(
+        "Pilih Model",
+        ["Random Forest", "Decision Tree", "K-Nearest Neighbors"]
+    )
 
 with col2:
     st.subheader("Hasil Prediksi")
-    if st.button('Prediksi Status Berat Badan', use_container_width=True):
-        # Select model and get expected feature count
-        if model_choice == 'Random Forest':
-            model = rf_model
-            expected_features = n_features_rf
-        elif model_choice == 'Decision Tree':
-            model = dt_model
-            expected_features = n_features_dt
-        else:
-            model = knn_model
-            expected_features = n_features_knn
+    
+    if st.button("Prediksi"):
+        # Select model based on user's choice
+        model = {
+            "Random Forest": rf_model,
+            "Decision Tree": dt_model,
+            "K-Nearest Neighbors": knn_model
+        }[model_choice]
         
-        # Create features array
-        if expected_features == 3:
-            features = [age, height, weight]
-        else:
-            st.error(f"Model expects {expected_features} features. Please update the code.")
-            st.stop()
+        # Prepare input data
+        input_data = [age, height, weight]
         
-        try:
-            prediction = predict(model, features, scaler)
-            predicted_class = class_labels[prediction[0]]
-            class_color = class_colors[predicted_class]
+        # Make prediction
+        prediction_idx = predict_with_debug(model, input_data, scaler)
+        
+        if prediction_idx is not None:
+            prediction_class = class_mapping.get(prediction_idx, "Unknown")
             
-            # Display prediction card
-            st.markdown(f"""
-                <div class="prediction-card" style="background-color: {class_color}">
-                    <h3 style="color: white; margin: 0;">Hasil Prediksi</h3>
-                    <h2 style="color: white; margin: 0;">{predicted_class}</h2>
-                    <p style="color: white; margin: 0;">Menggunakan model: {model_choice}</p>
-                </div>
-            """, unsafe_allow_html=True)
+            # Display result
+            st.success(f"Hasil Prediksi: **{prediction_class}**")
             
-            # Display probability if available
+            # Display probabilities if available
             if hasattr(model, 'predict_proba'):
-                proba = model.predict_proba(scaler.transform(np.array(features).reshape(1, -1)))[0]
+                scaled_input = scaler.transform(np.array(input_data).reshape(1, -1))
+                probabilities = model.predict_proba(scaled_input)[0]
                 
-                st.subheader("Probabilitas Kategori")
-                for i, p in enumerate(proba):
-                    cols = st.columns([1, 3, 1])
-                    with cols[0]:
-                        st.markdown(f"<div style='width: 20px; height: 20px; background-color: {class_colors[class_labels[i]]}; border-radius: 5px;'></div>", 
-                                   unsafe_allow_html=True)
-                    with cols[1]:
-                        st.write(class_labels[i])
-                    with cols[2]:
-                        st.write(f"{p*100:.1f}%")
+                st.subheader("Probabilitas Klasifikasi")
+                prob_df = pd.DataFrame({
+                    "Kelas": [class_mapping[i] for i in range(len(class_mapping))],
+                    "Probabilitas": probabilities
+                }).sort_values("Probabilitas", ascending=False)
                 
-        except Exception as e:
-            st.error(f"Error dalam prediksi: {str(e)}")
+                st.bar_chart(prob_df.set_index("Kelas"))
+
+
