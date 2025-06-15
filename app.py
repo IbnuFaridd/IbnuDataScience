@@ -63,9 +63,9 @@ rf_model, dt_model, knn_model, scaler = load_models()
 
 # Debug: Display model info
 st.sidebar.subheader("Model Info")
-st.sidebar.write(f"Random Forest features: {rf_model.n_features_in_}")
-st.sidebar.write(f"Decision Tree features: {dt_model.n_features_in_}")
-st.sidebar.write(f"KNN features: {knn_model.n_features_in_}")
+st.sidebar.write(f"Random Forest features")
+st.sidebar.write(f"Decision Tree features")
+st.sidebar.write(f"KNN features")
 
 class_mapping = {
     0: 'Normal Weight',
